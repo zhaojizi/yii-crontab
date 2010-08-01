@@ -27,9 +27,9 @@
  * @link http://code.google.com/p/yii-crontab/
  * @copyright Copyright &copy; 2009-2010 yiiframework.fr
  * @license http://www.opensource.org/licenses/mit-license.php
- * @version 1.0
+ * @version 0.2.1
  * @package crontab
- * @since 1.0
+ * @since 0.1
  */
 class CCrontab extends CApplicationComponent{
 	
@@ -161,12 +161,20 @@ class CCrontab extends CApplicationComponent{
 	
 	/**
 	 * Add job
+	 * @return CCrontab
 	 */
 	public function add()
 	{
+		if(empty($this->command))
+			return $this;
+			
 		$command=$this->minute." ".$this->hour." ".$this->day." ".$this->month." ".$this->dayofweek." ".$this->command."\n";
 		
 		$this->jobs[] = $command;
+		
+		$this->command = '';
+		
+		return $this;
 	}
 	
 	
