@@ -206,17 +206,17 @@ class CCrontab extends CApplicationComponent{
 		$command = '';
 		$nb_params = func_num_args() - 2;
 		
-		$command = Yii::getPathOfAlias('webroot').'/'.$entryScript . ' ' . $commandName;
+		$command = 'php '.Yii::getPathOfAlias('webroot').'/'.$entryScript . '.php ' . $commandName;
 				
-		if ($nb_params > 2)
+		if ($nb_params >= 1)
 		{
-			for ($i=0;$i<=$nb_params;$i++)
+			for ($i=1;$i<=$nb_params;$i++)
 			{
 				$command .= ' ' . func_get_arg($i + 1);
 			}
 			
 		}
-			
+
 		$this->command=$command;
 		
 		return $this;
