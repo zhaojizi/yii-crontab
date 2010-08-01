@@ -53,7 +53,7 @@ class CCrontab extends CApplicationComponent{
 	 *	@param	string	$crontabPath Path to cron program
 	 *	@access	public
 	 */
-	function CCrontab($dir=NULL, $filename=NULL, $crontabPath=NULL){
+	function CCrontab($filename=NULL, $dir=NULL, $crontabPath=NULL){
 		$result				=(!$dir) ? $this->setDirectory(Yii::getPathOfAlias('application.extensions.crontab.crontabs').'/') : $this->setDirectory($dir);
 		if(!$result)
 			exit('Directory error');
