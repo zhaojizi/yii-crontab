@@ -33,6 +33,7 @@
  */
 class CCrontab extends CApplicationComponent{
 	
+	protected $jobs			= array();
 	protected $minute		= NULL;
 	protected $hour			= NULL;
 	protected $day			= NULL;
@@ -61,8 +62,186 @@ class CCrontab extends CApplicationComponent{
 		if(!$result)
 			exit('File error');
 		$this->crontabPath=($crontabPath) ? NULL : $crontabPath;
+		
+		$this->loadJobs();
 	}
 	
+	
+
+	/**
+	 *	Set date parameters
+	 *
+	 *	If any parameters are left NULL then they default to *
+	 *
+	 *	A hyphen (-) between integers specifies a range of integers. For
+	 *	example, 1-4 means the integers 1, 2, 3, and 4.
+	 *
+	 *	A list of values separated by commas (,) specifies a list. For
+	 *	example, 3, 4, 6, 8 indicates those four specific integers.
+	 *
+	 *	The forward slash (/) can be used to specify step values. The value
+	 *	of an integer can be skipped within a range by following the range
+	 *	with /<integer>. For example, 0-59/2 can be used to define every other
+	 *	minute in the minute field. Step values can also be used with an asterisk.
+	 *	For instance, the value * /3 (no space) can be used in the month field to run the
+	 *	task every third month...
+	 *
+	 *	@param	mixed	$min		Minute(s)... 0 to 59
+	 *	@param	mixed	$hour		Hour(s)... 0 to 23
+	 *	@param	mixed	$day		Day(s)... 1 to 31
+	 *	@param	mixed	$month		Month(s)... 1 to 12 or short name
+	 *	@param	mixed	$dayofweek	Day(s) of week... 0 to 7 or short name. 0 and 7 = sunday
+	 *  @return CCrontab return this
+	 */
+	function setDateParams($min=NULL, $hour=NULL, $day=NULL, $month=NULL, $dayofweek=NULL){
+		
+		if($min=="0")
+			$this->minute=0;
+		elseif($min)
+			$this->minute=$min;
+		else
+			$this->minute="*";
+		
+		if($hour=="0")
+			$this->hour=0;
+		elseif($hour)
+			$this->hour=$hour;
+		else
+			$this->hour="*";
+		$this->month=($month) ? $month : "*";
+		$this->day=($day) ? $day : "*";
+		$this->dayofweek=($dayofweek) ? $dayofweek : "*";
+		
+		
+		return $this;
+		
+	}
+
+	
+	/**
+	 *	Set command to execute
+	 *
+	 *	@param	string	$command	Comand to set
+	 *  @return CCrontab return this
+	 */
+	function setCommand($command){
+		$this->command=$command;
+
+		return $this;
+	}
+	
+	
+	/**
+	 *	Set a application command to execute
+	 *
+	 *	@param	string	$command	Comand to set
+	 *	@access	public
+	 *  @return CCrontab return this
+	 */
+	function setApplicationCommand($entryScript, $commandName){
+		
+		$command = '';
+		$nb_params = func_num_args() - 2;
+		
+		$command = 'php '.Yii::getPathOfAlias('webroot').'/'.$entryScript . '.php ' . $commandName;
+				
+		if ($nb_params >= 1)
+		{
+			for ($i=1;$i<=$nb_params;$i++)
+			{
+				$command .= ' ' . func_get_arg($i + 1);
+			}
+			
+		}
+
+		$this->command=$command;
+		
+		return $this;
+	}
+	
+	/**
+	 * Add job
+	 */
+	public function add()
+	{
+		$command=$this->minute." ".$this->hour." ".$this->day." ".$this->month." ".$this->dayofweek." ".$this->command."\n";
+		
+		$this->jobs[] = $command;
+	}
+	
+	
+	
+	/**
+	 *	Write cron command to file. Make sure you used createCronFile
+	 *	before using this function of it will return false
+	 *  @return CCrontab return this or false
+	 */
+	function saveCronFile(){
+		$this->emptyCrontabFile();
+		foreach ($this->jobs as $job)
+		{
+			if(!fwrite($this->handle, $job))
+				return false;				
+		}
+		
+		return $this;
+	}
+	
+	
+	/**
+	 *	Save cron in system
+	 *	@return boolean this if successful else false
+	 */
+	function saveToCrontab(){
+		
+		if(!$this->filename)
+			exit('No name specified for cron file');
+					
+		if(exec($this->crontabPath."crontab ".$this->directory.$this->filename))
+			return $this;
+		else
+			return false;
+	}
+	
+
+	/**
+	 * Get jobs
+	 * @return array jobs
+	 */
+	public function getJobs()
+	{
+		return $this->jobs;
+	}
+	
+	/**
+	 * Remove a job with given offset
+	 * @return CCrontab
+	 */
+	public function removeJob($offset = NULL)
+	{
+		if($offset !== NULL)
+			unset($this->jobs[$offset]);
+		
+		return $this;
+	}
+	
+	/**
+	 * remove all jobs
+	 * @return CCrontab
+	 */
+	public function eraseJobs()
+	{
+		$this->jobs = array();
+		
+		return $this;
+	}	
+	
+	
+	
+	
+	/*********************************/
+	/********* Protected *************/
+	/*********************************/
 	
 	/**
 	 *	Set the directory path. Will check it if it exists then
@@ -71,7 +250,7 @@ class CCrontab extends CApplicationComponent{
 	 *
 	 *	@param	string	$directory	Directory, relative or full path
 	 *	@access	public
-	 *	@return	boolean
+	 *  @return CCrontab return this
 	 */
 	protected function setDirectory($directory){
 		if(!$directory) return false;
@@ -103,14 +282,14 @@ class CCrontab extends CApplicationComponent{
 	 *
 	 *	@param	string	$filename	Name of file you want to create
 	 *	@access	public
-	 *	@return	boolean
+	 *  @return CCrontab return this or false
 	 */
 	protected function createCronFile($filename=NULL){
 		if(!$filename)
 			return false;
 		
 		if(file_exists($this->directory.$filename)){
-			if($this->openFile($handle,$filename, 'a')){
+			if($this->openFile($handle,$filename, 'a+')){
 				$this->handle=&$handle;
 				$this->filename=$filename;
 				return $this;
@@ -118,7 +297,7 @@ class CCrontab extends CApplicationComponent{
 				return false;
 		}
 		
-		if(!$this->openFile($handle,$filename, 'a'))
+		if(!$this->openFile($handle,$filename, 'a+'))
 			return false;
 		else{
 			$this->handle=&$handle;
@@ -126,122 +305,27 @@ class CCrontab extends CApplicationComponent{
 			return $this;
 		}
 	}
-		
-	
-	
-
-	/**
-	 *	Set date parameters
-	 *
-	 *	If any parameters are left NULL then they default to *
-	 *
-	 *	A hyphen (-) between integers specifies a range of integers. For
-	 *	example, 1-4 means the integers 1, 2, 3, and 4.
-	 *
-	 *	A list of values separated by commas (,) specifies a list. For
-	 *	example, 3, 4, 6, 8 indicates those four specific integers.
-	 *
-	 *	The forward slash (/) can be used to specify step values. The value
-	 *	of an integer can be skipped within a range by following the range
-	 *	with /<integer>. For example, 0-59/2 can be used to define every other
-	 *	minute in the minute field. Step values can also be used with an asterisk.
-	 *	For instance, the value * /3 (no space) can be used in the month field to run the
-	 *	task every third month...
-	 *
-	 *	@param	mixed	$min		Minute(s)... 0 to 59
-	 *	@param	mixed	$hour		Hour(s)... 0 to 23
-	 *	@param	mixed	$day		Day(s)... 1 to 31
-	 *	@param	mixed	$month		Month(s)... 1 to 12 or short name
-	 *	@param	mixed	$dayofweek	Day(s) of week... 0 to 7 or short name. 0 and 7 = sunday
-	 *	$access	public
-	 */
-	function setDateParams($min=NULL, $hour=NULL, $day=NULL, $month=NULL, $dayofweek=NULL){
-		
-		if($min=="0")
-			$this->minute=0;
-		elseif($min)
-			$this->minute=$min;
-		else
-			$this->minute="*";
-		
-		if($hour=="0")
-			$this->hour=0;
-		elseif($hour)
-			$this->hour=$hour;
-		else
-			$this->hour="*";
-		$this->month=($month) ? $month : "*";
-		$this->day=($day) ? $day : "*";
-		$this->dayofweek=($dayofweek) ? $dayofweek : "*";
-		
-		
-		return $this;
-		
-	}
-
-	
-	/**
-	 *	Set command to execute
-	 *
-	 *	@param	string	$command	Comand to set
-	 *	@access	public
-	 *	@return	string	$command
-	 */
-	function setCommand($command){
-		$this->command=$command;
-
-		return $this;
-	}
-	
-	
-	/**
-	 *	Set a application command to execute
-	 *
-	 *	@param	string	$command	Comand to set
-	 *	@access	public
-	 *	@return	string	$command
-	 */
-	function setApplicationCommand($entryScript, $commandName){
-		
-		$command = '';
-		$nb_params = func_num_args() - 2;
-		
-		$command = 'php '.Yii::getPathOfAlias('webroot').'/'.$entryScript . '.php ' . $commandName;
-				
-		if ($nb_params >= 1)
-		{
-			for ($i=1;$i<=$nb_params;$i++)
-			{
-				$command .= ' ' . func_get_arg($i + 1);
-			}
 			
-		}
-
-		$this->command=$command;
-		
-		return $this;
-	}
-	
-	
 	
 	/**
-	 *	Write cron command to file. Make sure you used createCronFile
-	 *	before using this function of it will return false
-	 *
-	 *	@access	public
-	 *	@return	void
+	 * Load jobs from crontab file
 	 */
-	function saveCronFile(){
-		$command=$this->minute." ".$this->hour." ".$this->day." ".$this->month." ".$this->dayofweek." ".$this->command."\n";
-		if(!fwrite($this->handle, $command))
-			return false;
-		else
-			return $this;
+	protected function loadJobs()
+	{
+		fseek($this->handle, 0);
+	    while (! feof ($this->handle)) 
+	    {
+	        $line= fgets ($this->handle);
+	        if(!empty($line))
+				$this->jobs[] = $line;
+    	}		
 	}
 	
-	
-	
-	function emptyCrontab()
+	/**
+	 * Empty crontab file
+	 * @return CCrontab
+	 */
+	protected function emptyCrontabFile()
 	{
 		$this->closeFile();
 		$this->openFile($this->handle,$this->filename, 'w');
@@ -252,35 +336,24 @@ class CCrontab extends CApplicationComponent{
 	}
 	
 	
-	
 	/**
-	 *	Save cron in system
-	 *
-	 *	@access	public
-	 *	@return boolean				true if successful else false
+	 * Close crontab file
 	 */
-	function addToCrontab(){
-		
-		if(!$this->filename)
-			exit('No name specified for cron file');
-					
-		if(exec($this->crontabPath."crontab ".$this->directory.$this->filename))
-			return $this;
-		else
-			return false;
-	}
-	
-	
-	protected function openFile(& $handle,$filename, $accessType = 'a')
-	{
-		 return $handle = fopen($this->directory.$filename, $accessType);
-		
-	}	
-	
-	
 	protected function closeFile()
 	{
 		fclose($this->handle);
 	}
+	
+	/**
+	 * Open crontab file
+	 * @param ressource $handle
+	 * @param string $filename
+	 * @param string $accessType
+	 */	
+	protected function openFile(& $handle,$filename, $accessType = 'a+')
+	{
+		 return $handle = fopen($this->directory.$filename, $accessType);
+		
+	}	
 	
 }
