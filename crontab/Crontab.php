@@ -21,25 +21,19 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  * 
- * CCrontab helps to add system cron jobs
+ * Crontab helps to add system cron jobs
  *
  * @author David Soyez <david.soyez@yiiframework.fr>
  * @link http://code.google.com/p/yii-crontab/
  * @copyright Copyright &copy; 2009-2010 yiiframework.fr
  * @license http://www.opensource.org/licenses/mit-license.php
- * @version 0.2.1
+ * @version 0.3
  * @package crontab
  * @since 0.1
  */
-class CCrontab extends CApplicationComponent{
+class Crontab extends CApplicationComponent{
 	
 	protected $jobs			= array();
-	protected $minute		= NULL;
-	protected $hour			= NULL;
-	protected $day			= NULL;
-	protected $month		= NULL;
-	protected $dayofweek	= NULL;
-	protected $command		= NULL;
 	protected $directory	= NULL;
 	protected $filename		= "crons";
 	protected $crontabPath	= NULL;
@@ -54,7 +48,7 @@ class CCrontab extends CApplicationComponent{
 	 *	@param	string	$crontabPath Path to cron program
 	 *	@access	public
 	 */
-	function CCrontab($filename=NULL, $dir=NULL, $crontabPath=NULL){
+	function Crontab($filename=NULL, $dir=NULL, $crontabPath=NULL){
 		$result				=(!$dir) ? $this->setDirectory(Yii::getPathOfAlias('application.extensions.crontab.crontabs').'/') : $this->setDirectory($dir);
 		if(!$result)
 			exit('Directory error');
@@ -69,7 +63,7 @@ class CCrontab extends CApplicationComponent{
 	
 
 	/**
-	 *	Set date parameters
+	 *	Add a job
 	 *
 	 *	If any parameters are left NULL then they default to *
 	 *
@@ -86,6 +80,7 @@ class CCrontab extends CApplicationComponent{
 	 *	For instance, the value * /3 (no space) can be used in the month field to run the
 	 *	task every third month...
 	 *
+	 *	@param	string	$command	Command
 	 *	@param	mixed	$min		Minute(s)... 0 to 59
 	 *	@param	mixed	$hour		Hour(s)... 0 to 23
 	 *	@param	mixed	$day		Day(s)... 1 to 31
@@ -93,25 +88,9 @@ class CCrontab extends CApplicationComponent{
 	 *	@param	mixed	$dayofweek	Day(s) of week... 0 to 7 or short name. 0 and 7 = sunday
 	 *  @return CCrontab return this
 	 */
-	function setDateParams($min=NULL, $hour=NULL, $day=NULL, $month=NULL, $dayofweek=NULL){
-		
-		if($min=="0")
-			$this->minute=0;
-		elseif($min)
-			$this->minute=$min;
-		else
-			$this->minute="*";
-		
-		if($hour=="0")
-			$this->hour=0;
-		elseif($hour)
-			$this->hour=$hour;
-		else
-			$this->hour="*";
-		$this->month=($month) ? $month : "*";
-		$this->day=($day) ? $day : "*";
-		$this->dayofweek=($dayofweek) ? $dayofweek : "*";
-		
+	function addJob($command, $min=NULL, $hour=NULL, $day=NULL, $month=NULL, $dayofweek=NULL)
+	{
+		$this->jobs[] = new Cronjob($command, $min, $hour, $day, $month, $dayofweek);
 		
 		return $this;
 		
@@ -119,61 +98,25 @@ class CCrontab extends CApplicationComponent{
 
 	
 	/**
-	 *	Set command to execute
-	 *
-	 *	@param	string	$command	Comand to set
-	 *  @return CCrontab return this
+	 *	Add an application job
 	 */
-	function setCommand($command){
-		$this->command=$command;
+	function addApplicationJob($entryScript, $commandName, $parameters = array(), $min=NULL, $hour=NULL, $day=NULL, $month=NULL, $dayofweek=NULL)
+	{
+		$this->jobs[] = new CronApplicationJob($entryScript, $commandName, $parameters, $min, $hour, $day, $month, $dayofweek);
 
 		return $this;
 	}
 	
-	
 	/**
-	 *	Set a application command to execute
-	 *
-	 *	@param	string	$command	Comand to set
-	 *	@access	public
-	 *  @return CCrontab return this
-	 */
-	function setApplicationCommand($entryScript, $commandName){
-		
-		$command = '';
-		$nb_params = func_num_args() - 2;
-		
-		$command = 'php '.Yii::getPathOfAlias('webroot').'/'.$entryScript . '.php ' . $commandName;
-				
-		if ($nb_params >= 1)
-		{
-			for ($i=1;$i<=$nb_params;$i++)
-			{
-				$command .= ' ' . func_get_arg($i + 1);
-			}
-			
-		}
-
-		$this->command=$command;
-		
-		return $this;
-	}
-	
-	/**
-	 * Add job
+	 * Add job object
+	 * @param mixed $job CronApplicationJob or Cronjob
 	 * @return CCrontab
 	 */
-	public function add()
+	public function add($job)
 	{
-		if(empty($this->command))
-			return $this;
-			
-		$command=$this->minute." ".$this->hour." ".$this->day." ".$this->month." ".$this->dayofweek." ".$this->command."\n";
-		
-		$this->jobs[] = $command;
-		
-		$this->command = '';
-		
+		if($job instanceof CronApplicationJob OR $job instanceof Cronjob)
+			$this->jobs[] = $job;
+				
 		return $this;
 	}
 	
@@ -188,7 +131,7 @@ class CCrontab extends CApplicationComponent{
 		$this->emptyCrontabFile();
 		foreach ($this->jobs as $job)
 		{
-			if(!fwrite($this->handle, $job))
+			if(!fwrite($this->handle, $job->getJobCommand()))
 				return false;				
 		}
 		
@@ -324,10 +267,25 @@ class CCrontab extends CApplicationComponent{
 	    while (! feof ($this->handle)) 
 	    {
 	        $line= fgets ($this->handle);
+	        $line = trim(trim($line), "\t");
 	        if(!empty($line))
-				$this->jobs[] = $line;
+	        {
+		        if(CronApplicationJob::isApplicationJob($line))
+		        {
+		        	$obj = CronApplicationJob::parseFromCommand($line);
+		        	if($obj !== FALSE)
+		        		$this->jobs[] = $obj;
+		        }
+		        else
+		        {
+					$obj = Cronjob::parseFromCommand($line);
+					if($obj !== FALSE)
+	        			$this->jobs[] = $obj;
+		        }
+	        }
     	}		
 	}
+	
 	
 	/**
 	 * Empty crontab file
@@ -363,5 +321,259 @@ class CCrontab extends CApplicationComponent{
 		 return $handle = fopen($this->directory.$filename, $accessType);
 		
 	}	
+	
+}
+
+
+class Cronjob 
+{
+	protected $minute		= NULL;
+	protected $hour			= NULL;
+	protected $day			= NULL;
+	protected $month		= NULL;
+	protected $dayofweek	= NULL;
+	protected $command		= NULL;
+	
+	
+	function Cronjob($command, $min=NULL, $hour=NULL, $day=NULL, $month=NULL, $dayofweek=NULL)
+	{
+		$this->setMinute($min);
+		$this->setHour($hour);
+		$this->setDay($day);
+		$this->setMonth($month);
+		$this->setDayofweek($dayofweek);
+		$this->command = $command;	
+	
+		return $this;
+	}
+	
+	/**
+	 * Return the system command for the object
+	 */
+	public function getJobCommand()
+	{
+		return $this->minute." ".$this->hour." ".$this->day." ".$this->month." ".$this->dayofweek." ".$this->getCommand()."\n";
+	}
+	
+	/**
+	 * Return the command
+	 */
+	public function getCommand()
+	{
+		return $this->command;
+	}	
+	
+	/**
+	 * parse system job command and return an object
+	 * Works only for regular entry
+	 */
+	static function parseFromCommand($command)
+	{
+		$vars = split("[ \t]",ltrim($command, " \t"), 6);
+		
+		if(count($vars) < 5)
+			return false;
+			
+		$min 	 = $vars[0];
+		$hour 		 = $vars[1];
+		$day		 = $vars[2];
+		$month		 = $vars[3];
+		$dayofweek 	 = $vars[4];
+		
+		$command 	 = $vars[5];
+			
+		return new Cronjob($command, $min, $hour, $day, $month, $dayofweek);
+	}
+	
+	/* setter */
+	
+	public function setMinute($min)
+	{
+		if($min=="0")
+			$this->minute=0;
+		elseif($min)
+			$this->minute=$min;
+		else
+			$this->minute="*";
+	}
+	
+	public function setHour($hour)
+	{
+		if($hour=="0")
+			$this->hour=0;
+		elseif($hour)
+			$this->hour=$hour;
+		else
+			$this->hour="*";	
+	}
+	
+	public function setDay($day)
+	{
+		$this->day=($day) ? $day : "*";
+	}
+	
+	public function setMonth($month)
+	{
+		$this->month=($month) ? $month : "*";
+	}
+	
+	public function setdayofweek($dayofweek)
+	{
+		$this->dayofweek=($dayofweek) ? $dayofweek : "*";
+	}
+	
+	/* getter */
+	
+	public function getMinute()
+	{
+		return $this->minute;
+	}
+	
+	public function getHour()
+	{
+		return $this->hour;
+	}
+
+	public function getDay()
+	{
+		return $this->day;
+	}
+
+	public function getMonth()
+	{
+		return $this->month;
+	}
+
+	public function getDayofweek()
+	{
+		return $this->dayofweek;
+	}	
+	
+}
+
+
+class CronApplicationJob extends Cronjob
+{
+	protected $entryScript = NULL;
+	protected $commandName = NULL;
+	protected $parameters  = array();
+	
+	function CronApplicationJob($entryScript, $commandName, $parameters = array(), $min=NULL, $hour=NULL, $day=NULL, $month=NULL, $dayofweek=NULL)
+	{
+		$this->entryScript = $entryScript;
+		$this->commandName = $commandName;
+		$this->parameters = $parameters;
+		
+		$command = $this->getCommand();
+			
+		parent::Cronjob($command, $min, $hour, $day, $month, $dayofweek);
+		
+		return $this;	
+	
+	}
+	
+	/**
+	 * Return the system command
+	 */
+	public function getJobCommand()
+	{
+		$command =  $this->minute." ".$this->hour." ".$this->day." ".$this->month." ".$this->dayofweek." ".$this->getCommand()."\n";
+
+		return $command;
+	}	
+	
+	/**
+	 * Return the Application command
+	 */
+	public function getCommand()
+	{
+		$command = 'php '.Yii::getPathOfAlias('webroot').'/'.$this->entryScript . '.php ' . $this->commandName;
+		
+		foreach($this->parameters as $parameter)
+			$command .= ' ' . $parameter;	
+			
+		return $command;
+	}
+	
+	/**
+	 * parse system job command and return an object
+	 */
+	static function parseFromCommand($command)
+	{
+		$vars = split("[ \t]",ltrim($command, " \t"), 6);
+		
+		if(count($vars) < 5)
+			return false;
+			
+		$min 	 = $vars[0];
+		$hour 		 = $vars[1];
+		$day		 = $vars[2];
+		$month		 = $vars[3];
+		$dayofweek 	 = $vars[4];
+		
+		$command 	 = $vars[5];
+	
+		if(preg_match('|^php ([^\\\]*.php) ([^\\\]*)|', $command, $matches) > 0)
+		{
+			$entryScript = basename($matches[1], ".php");
+			$params = explode(' ',$matches[2]);
+			$commandName = $params[0];
+			array_shift($params);
+			$parameters = $params;	
+		}
+		else
+			return false;
+		
+		return new CronApplicationJob($entryScript, $commandName, $parameters, $min, $hour, $day, $month, $dayofweek);
+	}
+	
+	/**
+	 * Check if the given command would be an ApplicationJob
+	 */
+	static function isApplicationJob($line)
+	{
+		$vars = split("[ \t]",ltrim(ltrim($line), "\t"), 6);
+		
+		if(count($vars) < 5)
+			return false;
+
+		return (bool)preg_match("|^php ([^\\\]*.php) ([^\\\]*)|", $vars[5]);
+	}
+	
+	
+	/* setter */
+	
+	public function setParams($params)
+	{
+		$this->parameters = $params;
+	}
+
+	public function setEntryScript($entryScript)
+	{
+		$this->entryScript = $entryScript;
+	}	
+
+	public function setCommandName($commandName)
+	{
+		$this->commandName = $commandName;
+	}		
+	
+	
+	/* getter */
+	
+	public function getParams()
+	{
+		return $this->parameters;
+	}	
+	
+	public function getEntryScript()
+	{
+		return $this->entryScript;
+	}
+
+	public function getCommandName()
+	{
+		return $this->commandName;
+	}		
 	
 }
